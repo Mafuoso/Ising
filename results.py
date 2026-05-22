@@ -84,7 +84,7 @@ if __name__ == "__main__":
     df_1D = pd.DataFrame({
         "Temperature": T_values_1D,
         "Energy": energies_1d,
-        "Energy Error": energies_errors_1d
+        "Energy Error": energies_errors_1d,
         "Magnetization": magnetizations_1d,
         "Magnetization Error": magnetizations_errors_1d,
         "Heat Capacity": heat_capacities_1d,
