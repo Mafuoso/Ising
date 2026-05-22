@@ -98,11 +98,25 @@ def jackknife_capcities(data,T):
     jackknife_variance = np.var(jackknife_estimators)
     return jackknife_mean, jackknife_variance
 
+def jackknife_binder(data,T):
+    n = len(data)
+    jackknife_estimators = np.zeros(n)
+    for i in range(n):
+        mask = mask = np.ones(n, dtype=np.bool_)
+        mask[i] = False
+        jackknife_sample = data[mask]
+        jackknife_estimators[i] = (binder_cumulant(jackknife_sample**2, jackknife_sample**4) )
+    jackknife_mean = np.mean(jackknife_estimators)
+    jackknife_variance = np.var(jackknife_estimators)
+    return jackknife_mean, jackknife_variance
+
 @njit
 def monte_carlo(chain,neighbours, steps, J=1.0, T=1.0):
     energies = np.zeros(steps//50)
     energies_errors = np.zeros(steps//50)
     magnetizations  = np.zeros(steps//50)
+    binder_cumulants = np.zeros(steps//50)
+    binder_errors = np.zers(steps//50)
     magnetizations_errors = np.zeros(steps//50)
     heat_capacities = np.zeros(steps//50)
     heat_capacities_errors = np.zeros(steps//50)
@@ -112,11 +126,14 @@ def monte_carlo(chain,neighbours, steps, J=1.0, T=1.0):
             energies[k//50] = hamiltonian(chain,neighbours, J=J)
             heat_capacities[k//50] = heat_capacity(energies,energies**2,T)
             magnetizations[k//50] = magnetization(chain)
-    energies_errors = jackknife_energy(energies,"mean_energy",T)
-    magnetizations_errors = jackknife_magnetization(magnetizations,"magnetization",T)
-    heat_capacities_errors = jackknife_capcities(heat_capacities,"heat_capacity",T)
+            binder_cumulants[k//50] = binder_cumulant(magnetization(chain)**2,magnetization(chain)**4)
+    energies_errors = jackknife_energy(energies,T)
+    magnetizations_errors = jackknife_magnetization(magnetizations,T)
+    heat_capacities_errors = jackknife_capcities(heat_capacities,T)
+    binder_errors = jackknife_binder(magnetizations)
+    
 
-    return energies,magnetizations, heat_capacities, energies_errors, magnetizations_errors, heat_capacities_errors
+    return energies,magnetizations, heat_capacities,binder_cumulants, energies_errors, magnetizations_errors, heat_capacities_errors,binder_errors
     
 
 @njit
