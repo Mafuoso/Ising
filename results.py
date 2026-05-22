@@ -70,9 +70,9 @@ if __name__ == "__main__":
     scaling_sizes = [5,10,20,60]
     scaling_stats = []
     with ProcessPoolExecutor() as executor:
-        for size_idx in range(len(scaling_sizes)):
+        for size_idx,L in enumerate(scaling_sizes):
             scaling_stats.append(list(tqdm(
-            executor.map(partial(twod_monte.run_mc, size=scaling_sizes[size_idx], steps=steps_2D*10), T_values_2D),
+            executor.map(partial(twod_monte.run_mc, size=scaling_sizes[size_idx], steps=steps_2D), T_values_2D),
             total=len(T_values_2D),
             desc="Temperature Loop"
         )))
@@ -97,7 +97,7 @@ if __name__ == "__main__":
 
     
     #Save 2D Small Data
-    energies_2d_small, magnetizations_2d_small, heat_capacities_2d_small, energies_errors_2d_small, magnetizations_errors_2d_small, heat_capacities_errors_2d_small = zip(*stats_1D)
+    energies_2d_small, magnetizations_2d_small, heat_capacities_2d_small, energies_errors_2d_small, magnetizations_errors_2d_small, heat_capacities_errors_2d_small = zip(*stats_2D_Small)
     df_2d_small = pd.DataFrame({
         "Temperature": T_values_2D,
         "Energy": energies_2d_small,
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     df_2d_small.to_csv("data/2d_small_Ising_Results.csv", index=False)
 
     #Save 2D Large Data
-    energies_2d_large, magnetizations_2d_large, heat_capacities_2d_large, energies_errors_2d_large, magnetizations_errors_2d_large, heat_capacities_errors_2d_large = zip(*stats_1D)
+    energies_2d_large, magnetizations_2d_large, heat_capacities_2d_large, energies_errors_2d_large, magnetizations_errors_2d_large, heat_capacities_errors_2d_large = zip(*stats_2D_Large)
     df_2d_large = pd.DataFrame({
         "Temperature": T_values_2D,
         "Energy": energies_2d_large,
@@ -130,14 +130,14 @@ if __name__ == "__main__":
     for idx,_ in enumerate(scaling_sizes):
         energies, magnetizations, heat_capacities, energies_errors, magnetizations_errors, heat_capacities_errors = zip(*scaling_stats[idx])
         df = pd.DataFrame({
-        "Temperature": T_values_2D,
-        "Energy": energies,
-        "Energy Error": energies_errors,
-        "Magnetization": magnetizations,
-        "Magnetization Error": magnetizations_errors,
-        "Heat Capacity": heat_capacities,
-        "Heat Capacity Error":heat_capacities_errors
-    })
+            "Temperature": T_values_2D,
+            "Energy": energies,
+            "Energy Error": energies_errors,
+            "Magnetization": magnetizations,
+            "Magnetization Error": magnetizations_errors,
+            "Heat Capacity": heat_capacities,
+            "Heat Capacity Error":heat_capacities_errors
+        })
         df.to_csv(f"data/2d_L_{scaling_sizes[idx]}_Ising_results.csv",index=False)
 
         

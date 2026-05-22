@@ -69,7 +69,7 @@ def jackknife_energy(data,T):
         mask = mask = np.ones(n, dtype=np.bool_)
         mask[i] = False
         jackknife_sample = data[mask]
-        jackknife_estimators.append(np.mean(jackknife_sample))
+        jackknife_estimators[i] = (np.mean(jackknife_sample))
     jackknife_mean = np.mean(jackknife_estimators)
     jackknife_variance = np.var(jackknife_estimators)
     return jackknife_mean, jackknife_variance
@@ -81,7 +81,7 @@ def jackknife_magnetization(data,T):
         mask = mask = np.ones(n, dtype=np.bool_)
         mask[i] = False
         jackknife_sample = data[mask]
-        jackknife_estimators.append(np.abs(np.mean(jackknife_sample)))
+        jackknife_estimators[i] = (np.abs(np.mean(jackknife_sample)))
     jackknife_mean = np.mean(jackknife_estimators)
     jackknife_variance = np.var(jackknife_estimators)
     return jackknife_mean, jackknife_variance
@@ -93,7 +93,7 @@ def jackknife_capcities(data,T):
         mask = mask = np.ones(n, dtype=np.bool_)
         mask[i] = False
         jackknife_sample = data[mask]
-        jackknife_estimators.append(heat_capacity(np.mean(jackknife_sample), np.mean(jackknife_sample**2), T) )
+        jackknife_estimators[i] = (heat_capacity(np.mean(jackknife_sample), np.mean(jackknife_sample**2), T) )
     jackknife_mean = np.mean(jackknife_estimators)
     jackknife_variance = np.var(jackknife_estimators)
     return jackknife_mean, jackknife_variance
@@ -131,7 +131,7 @@ def run_mc(T, size=1.0, steps=10):
 def warmup(size):
     # Trigger Numba JIT compilation before spawning processes
     # so each worker doesn't pay the compilation cost
-    chain = np.ones(size, dtype=np.int32)
+    chain = np.ones(size**2, dtype=np.int32)
     neighbours = build_neighbour_list(size)
     monte_carlo(chain,neighbours, 50, J=1.0, T=1.0)
 
