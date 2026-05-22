@@ -112,9 +112,35 @@ if __name__ == "__main__":
     df_2d_small.to_csv("data/2d_small_Ising_Results.csv", index=False)
 
     #Save 2D Large Data
+    energies_2d_large, magnetizations_2d_large, heat_capacities_2d_large, energies_errors_2d_large, magnetizations_errors_2d_large, heat_capacities_errors_2d_large = zip(*stats_1D)
+    df_2d_large = pd.DataFrame({
+        "Temperature": T_values_2D,
+        "Energy": energies_2d_large,
+        "Energy Error": energies_errors_2d_large,
+        "Magnetization": magnetizations_2d_large,
+        "Magnetization Error": magnetizations_errors_2d_large,
+        "Heat Capacity": heat_capacities_2d_large,
+        "Heat Capacity Error":heat_capacities_errors_2d_large,
+        "Analytical Onsager Energy": twod_analytical_energies_large
+    })
+    df_2d_large.to_csv("data/2d_large_Ising_Results.csv", index=False)
 
     
+    #Save 2D Scaling Data
+    for idx,_ in enumerate(scaling_sizes):
+        energies, magnetizations, heat_capacities, energies_errors, magnetizations_errors, heat_capacities_errors = zip(*scaling_stats[idx])
+        df = pd.DataFrame({
+        "Temperature": T_values_2D,
+        "Energy": energies,
+        "Energy Error": energies_errors,
+        "Magnetization": magnetizations,
+        "Magnetization Error": magnetizations_errors,
+        "Heat Capacity": heat_capacities,
+        "Heat Capacity Error":heat_capacities_errors
+    })
+        df.to_csv(f"data/2d_L_{scaling_sizes[idx]}_Ising_results.csv",index=False)
 
+        
     # #Create Interpolated Functions
     # funcs = {}
     # pairwise = []

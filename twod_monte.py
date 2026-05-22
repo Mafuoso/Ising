@@ -62,47 +62,41 @@ def equillibrituation(chain,neighbours, J=1.0, T=1.0):
         metropolis(chain,neighbours, J=J, T=T)
     return chain         
 
-def jackknife(data, observable,T):
-    if observable == "mean_energy":
-        f = np.mean
-    elif observable == "heat_capacity":
-        f = lambda x: heat_capacity(np.mean(x), np.mean(x**2), T) 
-    elif observable == "magnetization":
-        f = lambda x: np.abs(np.mean(x))
-    else:
-        raise ValueError("Unsupported observable for jackknife")
+def jackknife_energy(data,T):
     n = len(data)
-    jackknife_estimators = []
+    jackknife_estimators = np.zeros(n)
     for i in range(n):
-        jackknife_sample = np.delete(data, i)
-        jackknife_estimators.append(f(jackknife_sample))
+        mask = mask = np.ones(n, dtype=np.bool_)
+        mask[i] = False
+        jackknife_sample = data[mask]
+        jackknife_estimators.append(np.mean(jackknife_sample))
     jackknife_mean = np.mean(jackknife_estimators)
-    jackknife_variance = np.sqrt((n - 1)/n   * np.mean((jackknife_estimators - jackknife_mean) ** 2))
+    jackknife_variance = np.var(jackknife_estimators)
     return jackknife_mean, jackknife_variance
 
-def blockjackknife(data, observable, block_size):
-    if observable == "mean_energy":
-        f = np.mean
-    elif observable == "heat_capacity":
-        f = lambda x: heat_capacity(np.mean(x), np.mean(x**2), T=1.0) 
-    elif observable == "magnetization":
-        f = lambda x: np.abs(np.mean(x))
-    else:
-        raise ValueError("Unsupported observable for block jackknife")
-    
+def jackknife_magnetization(data,T):
     n = len(data)
-    num_blocks = n // block_size
-    block_estimators = []
-    
-    for i in range(num_blocks):
-        block_sample = np.delete(data, slice(i * block_size, (i + 1) * block_size))
-        block_estimators.append(f(block_sample))
-    
-    block_mean = np.mean(block_estimators)
-    block_variance = np.sqrt((num_blocks - 1) * np.mean((block_estimators - block_mean) ** 2))
-    
-    return block_mean, block_variance
+    jackknife_estimators = np.zeros(n)
+    for i in range(n):
+        mask = mask = np.ones(n, dtype=np.bool_)
+        mask[i] = False
+        jackknife_sample = data[mask]
+        jackknife_estimators.append(np.abs(np.mean(jackknife_sample)))
+    jackknife_mean = np.mean(jackknife_estimators)
+    jackknife_variance = np.var(jackknife_estimators)
+    return jackknife_mean, jackknife_variance
 
+def jackknife_capcities(data,T):
+    n = len(data)
+    jackknife_estimators = np.zeros(n)
+    for i in range(n):
+        mask = mask = np.ones(n, dtype=np.bool_)
+        mask[i] = False
+        jackknife_sample = data[mask]
+        jackknife_estimators.append(heat_capacity(np.mean(jackknife_sample), np.mean(jackknife_sample**2), T) )
+    jackknife_mean = np.mean(jackknife_estimators)
+    jackknife_variance = np.var(jackknife_estimators)
+    return jackknife_mean, jackknife_variance
 
 def monte_carlo(chain,neighbours, steps, J=1.0, T=1.0):
     energies = np.zeros(steps//50)
@@ -115,7 +109,7 @@ def monte_carlo(chain,neighbours, steps, J=1.0, T=1.0):
         metropolis(chain,neighbours, J=J, T=T)
         if k % 50 == 0:  # Record energy every 50 steps
             energies[k//50] = hamiltonian(chain,neighbours, J=J)
-            heat_capacities = heat_capacity(energies,energies**2,T)
+            heat_capacities[k//50] = heat_capacity(energies,energies**2,T)
             magnetizations[k//50] = magnetization(chain)
     energies_errors = jackknife(energies,"mean_energy",T)
     magnetizations_errors = jackknife(magnetizations,"magnetization",T)
