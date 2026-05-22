@@ -98,6 +98,7 @@ def jackknife_capcities(data,T):
     jackknife_variance = np.var(jackknife_estimators)
     return jackknife_mean, jackknife_variance
 
+@njit
 def monte_carlo(chain,neighbours, steps, J=1.0, T=1.0):
     energies = np.zeros(steps//50)
     energies_errors = np.zeros(steps//50)
@@ -111,14 +112,14 @@ def monte_carlo(chain,neighbours, steps, J=1.0, T=1.0):
             energies[k//50] = hamiltonian(chain,neighbours, J=J)
             heat_capacities[k//50] = heat_capacity(energies,energies**2,T)
             magnetizations[k//50] = magnetization(chain)
-    energies_errors = jackknife(energies,"mean_energy",T)
-    magnetizations_errors = jackknife(magnetizations,"magnetization",T)
-    heat_capacities_errors = jackknife(heat_capacities,"heat_capacity",T)
+    energies_errors = jackknife_energy(energies,"mean_energy",T)
+    magnetizations_errors = jackknife_magnetization(magnetizations,"magnetization",T)
+    heat_capacities_errors = jackknife_capcities(heat_capacities,"heat_capacity",T)
 
     return energies,magnetizations, heat_capacities, energies_errors, magnetizations_errors, heat_capacities_errors
     
 
-
+@njit
 def run_mc(T, size=1.0, steps=10):
     lattice_size = size
     neighbours = build_neighbour_list(lattice_size)
@@ -126,7 +127,7 @@ def run_mc(T, size=1.0, steps=10):
     chain = equillibrituation(chain,neighbours, J=1.0, T=T)
     return monte_carlo(chain,neighbours, steps, J=1.0, T=T)
 
-
+@njit
 def warmup(size):
     # Trigger Numba JIT compilation before spawning processes
     # so each worker doesn't pay the compilation cost
