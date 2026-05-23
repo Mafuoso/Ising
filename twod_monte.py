@@ -8,6 +8,7 @@ from scipy.special import ellipk, ellipe
 
 sech = lambda x: 1/np.cosh(x)
 
+@njit
 def build_neighbour_list(lattice_size):
     neighbours = []
     for i in range(lattice_size):
@@ -21,12 +22,13 @@ def build_neighbour_list(lattice_size):
             neighbours.append(nb)
     return np.array(neighbours, dtype=np.int32)
 
+@njit
 def heat_capacity(energies,square_energies, T):
     E = np.mean(energies)
     E2 = np.mean(square_energies)   
     return (E2 - E**2) / (T**2)
 
-
+@njit
 def hamiltonian(chain,neighbours, J=1.0):
     energy = 0.0
     for i in range(len(chain)):
@@ -34,16 +36,18 @@ def hamiltonian(chain,neighbours, J=1.0):
             energy -= J * chain[i] * chain[nb]
     return energy/(2*len(chain))  # Return energy per spin #each bond is counted twice
 
-
+@njit
 def magnetization(chain):
     M = np.abs(np.sum(chain))
     return M
 
+@njit
+def binder_cumulant(magnetizations):
+    m2 = np.mean(magnetizations**2)
+    m4 = np.mean(magnetizations**4)
+    return 1.0 - m4 / (3.0 * m2**2)
 
-def binder_cumulant(mag_2, mag_4):
-    return 1/3*(3-mag_4/ mag_2**2)
-
-
+@njit
 def metropolis(chain,neighbours, J=1.0, T=1.0):
     N = len(chain)
     for _ in range(N):
@@ -56,12 +60,13 @@ def metropolis(chain,neighbours, J=1.0, T=1.0):
             if np.random.rand() <= w:
                 chain[i] *= -1
     
-
+@njit
 def equillibrituation(chain,neighbours, J=1.0, T=1.0):
     for _ in range(int(1000/T)):
         metropolis(chain,neighbours, J=J, T=T)
     return chain         
 
+@njit
 def jackknife_energy(data,T):
     n = len(data)
     jackknife_estimators = np.zeros(n)
@@ -74,7 +79,8 @@ def jackknife_energy(data,T):
     jackknife_variance = np.var(jackknife_estimators)
     return jackknife_mean, jackknife_variance
 
-def jackknife_magnetization(data,T):
+@njit
+def jackknife_magnetization(data):
     n = len(data)
     jackknife_estimators = np.zeros(n)
     for i in range(n):
@@ -86,6 +92,7 @@ def jackknife_magnetization(data,T):
     jackknife_variance = np.var(jackknife_estimators)
     return jackknife_mean, jackknife_variance
 
+@njit
 def jackknife_capcities(data,T):
     n = len(data)
     jackknife_estimators = np.zeros(n)
@@ -98,14 +105,15 @@ def jackknife_capcities(data,T):
     jackknife_variance = np.var(jackknife_estimators)
     return jackknife_mean, jackknife_variance
 
-def jackknife_binder(data,T):
+@njit
+def jackknife_binder(data):
     n = len(data)
     jackknife_estimators = np.zeros(n)
     for i in range(n):
         mask = mask = np.ones(n, dtype=np.bool_)
         mask[i] = False
         jackknife_sample = data[mask]
-        jackknife_estimators[i] = (binder_cumulant(jackknife_sample**2, jackknife_sample**4) )
+        jackknife_estimators[i] = (binder_cumulant(jackknife_sample))
     jackknife_mean = np.mean(jackknife_estimators)
     jackknife_variance = np.var(jackknife_estimators)
     return jackknife_mean, jackknife_variance
@@ -115,8 +123,6 @@ def monte_carlo(chain,neighbours, steps, J=1.0, T=1.0):
     energies = np.zeros(steps//50)
     energies_errors = np.zeros(steps//50)
     magnetizations  = np.zeros(steps//50)
-    binder_cumulants = np.zeros(steps//50)
-    binder_errors = np.zers(steps//50)
     magnetizations_errors = np.zeros(steps//50)
     heat_capacities = np.zeros(steps//50)
     heat_capacities_errors = np.zeros(steps//50)
@@ -124,16 +130,17 @@ def monte_carlo(chain,neighbours, steps, J=1.0, T=1.0):
         metropolis(chain,neighbours, J=J, T=T)
         if k % 50 == 0:  # Record energy every 50 steps
             energies[k//50] = hamiltonian(chain,neighbours, J=J)
-            heat_capacities[k//50] = heat_capacity(energies,energies**2,T)
+            heat_capacities[k//50] = heat_capacity(hamiltonian(chain,neighbours,J=J),hamiltonian(chain,neighbours,J=J)**2,T)
             magnetizations[k//50] = magnetization(chain)
-            binder_cumulants[k//50] = binder_cumulant(magnetization(chain)**2,magnetization(chain)**4)
     energies_errors = jackknife_energy(energies,T)
-    magnetizations_errors = jackknife_magnetization(magnetizations,T)
-    heat_capacities_errors = jackknife_capcities(heat_capacities,T)
-    binder_errors = jackknife_binder(magnetizations)
+    magnetizations_errors = jackknife_magnetization(magnetizations)
+    heat_capacities_errors = jackknife_capcities(energies,T)
+    # correct - compute once from full sample arrays after the loop
+    binder_mean = 1.0 - np.mean(magnetizations**4) / (3.0 * np.mean(magnetizations**2)**2)
+    binder_mean, binder_errors = jackknife_binder(magnetizations)
     
 
-    return energies,magnetizations, heat_capacities,binder_cumulants, energies_errors, magnetizations_errors, heat_capacities_errors,binder_errors
+    return np.mean(energies),np.mean(magnetizations), np.mean(heat_capacities),binder_mean, energies_errors, magnetizations_errors, heat_capacities_errors,binder_errors
     
 
 @njit
@@ -150,7 +157,7 @@ def warmup(size):
     # so each worker doesn't pay the compilation cost
     chain = np.ones(size**2, dtype=np.int32)
     neighbours = build_neighbour_list(size)
-    monte_carlo(chain,neighbours, 50, J=1.0, T=1.0)
+    monte_carlo(chain,neighbours, 500, J=1.0, T=1.0)
 
 def analytical_energy(chain, J=1.0, T=1.0):
     #Onsager's solution for 2D Ising model with zero external field
