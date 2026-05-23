@@ -76,11 +76,13 @@ def jackknife_energy(data,T):
         jackknife_sample = data[mask]
         jackknife_estimators[i] = (np.mean(jackknife_sample))
     jackknife_mean = np.mean(jackknife_estimators)
-    jackknife_variance = np.var(jackknife_estimators)
+    jackknife_variance = np.sqrt((n - 1) / n * np.sum((jackknife_estimators - jackknife_mean) ** 2))
     return jackknife_mean, jackknife_variance
 
 @njit
 def jackknife_magnetization(data):
+    if len(data) <= 1:
+        return 0.0, 0.0
     n = len(data)
     jackknife_estimators = np.zeros(n)
     for i in range(n):
@@ -89,24 +91,28 @@ def jackknife_magnetization(data):
         jackknife_sample = data[mask]
         jackknife_estimators[i] = (np.abs(np.mean(jackknife_sample)))
     jackknife_mean = np.mean(jackknife_estimators)
-    jackknife_variance = np.var(jackknife_estimators)
+    jackknife_variance = np.sqrt((n - 1) / n * np.sum((jackknife_estimators - jackknife_mean) ** 2))
     return jackknife_mean, jackknife_variance
 
 @njit
 def jackknife_capcities(data,T):
+    if len(data) <= 1:
+        return 0.0, 0.0
     n = len(data)
     jackknife_estimators = np.zeros(n)
     for i in range(n):
         mask = mask = np.ones(n, dtype=np.bool_)
         mask[i] = False
         jackknife_sample = data[mask]
-        jackknife_estimators[i] = (heat_capacity(np.mean(jackknife_sample), np.mean(jackknife_sample**2), T) )
+        jackknife_estimators[i] = (heat_capacity(np.mean(jackknife_sample), np.mean(jackknife_sample**2),T) )
     jackknife_mean = np.mean(jackknife_estimators)
-    jackknife_variance = np.var(jackknife_estimators)
+    jackknife_variance = np.sqrt((n - 1) / n * np.sum((jackknife_estimators - jackknife_mean) ** 2))
     return jackknife_mean, jackknife_variance
 
 @njit
 def jackknife_binder(data):
+    if len(data) <= 1:
+        return 0.0, 0.0
     n = len(data)
     jackknife_estimators = np.zeros(n)
     for i in range(n):
@@ -115,7 +121,7 @@ def jackknife_binder(data):
         jackknife_sample = data[mask]
         jackknife_estimators[i] = (binder_cumulant(jackknife_sample))
     jackknife_mean = np.mean(jackknife_estimators)
-    jackknife_variance = np.var(jackknife_estimators)
+    jackknife_variance = np.sqrt((n - 1) / n * np.sum((jackknife_estimators - jackknife_mean) ** 2))
     return jackknife_mean, jackknife_variance
 
 @njit
@@ -130,17 +136,23 @@ def monte_carlo(chain,neighbours, steps, J=1.0, T=1.0):
         metropolis(chain,neighbours, J=J, T=T)
         if k % 50 == 0:  # Record energy every 50 steps
             energies[k//50] = hamiltonian(chain,neighbours, J=J)
-            heat_capacities[k//50] = heat_capacity(hamiltonian(chain,neighbours,J=J),hamiltonian(chain,neighbours,J=J)**2,T)
             magnetizations[k//50] = magnetization(chain)
-    energies_errors = jackknife_energy(energies,T)
-    magnetizations_errors = jackknife_magnetization(magnetizations)
-    heat_capacities_errors = jackknife_capcities(energies,T)
-    # correct - compute once from full sample arrays after the loop
-    binder_mean = 1.0 - np.mean(magnetizations**4) / (3.0 * np.mean(magnetizations**2)**2)
-    binder_mean, binder_errors = jackknife_binder(magnetizations)
-    
+        E_mean = np.mean(energies)
+        M_mean = np.mean(magnetizations)
+        C_mean = len(chain)*(np.mean(energies**2) - np.mean(energies)**2) / T**2
+        m2 = np.mean(magnetizations**2)
+        if m2 == 0.0:
+            U_mean = 0.0
+        else:
+            U_mean = 1.0 - np.mean(magnetizations**4) / (3.0 * m2**2)
 
-    return np.mean(energies),np.mean(magnetizations), np.mean(heat_capacities),binder_mean, energies_errors, magnetizations_errors, heat_capacities_errors,binder_errors
+    _, E_err = jackknife_energy(energies, T)
+    _, M_err = jackknife_magnetization(magnetizations)
+    _, C_err = jackknife_capcities(energies, T)
+    _, U_err = jackknife_binder(magnetizations)
+
+
+    return E_mean,M_mean,C_mean,U_mean,E_err,M_err,C_err,U_err
     
 
 @njit

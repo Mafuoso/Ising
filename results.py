@@ -77,10 +77,11 @@ if __name__ == "__main__":
             desc="Temperature Loop"
         )))
             
+    analytical_heat_capacity = twod_monte.analytical_heat_capacity(T_values_2D)
     #Save all data 
 
     #Save 1D Data
-    energies_1d, magnetizations_1d, heat_capacities_1d, energies_errors_1d, magnetizations_errors_1d, heat_capacities_errors_1d = zip(*stats_1D)
+    energies_1d, magnetizations_1d, heat_capacities_1d,_, energies_errors_1d, magnetizations_errors_1d, heat_capacities_errors_1d = zip(*stats_1D)
     df_1D = pd.DataFrame({
         "Temperature": T_values_1D,
         "Energy": energies_1d,
@@ -137,6 +138,7 @@ if __name__ == "__main__":
             "Magnetization Error": magnetizations_errors,
             "Heat Capacity": heat_capacities,
             "Heat Capacity Error":heat_capacities_errors,
+            "Analytical Heat Capacity":analytical_heat_capacity,
             "Binder Cumulant":binder_cumulants,
             "Binder Cumulant Error":binder_errors
         })
