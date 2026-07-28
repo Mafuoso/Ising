@@ -9,8 +9,10 @@ import pandas as pd
 equilibration_steps = 10000
 production_steps = 50000
 
+
+# device = torch.device("mps" if torch.mps.is_available() else "cpu")
+# print(f"Using device: {device}")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
 torch.random.manual_seed(995)
 
 KERNEL = torch.tensor([[0,1,0],[1,0,1],[0,1,0]], dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(device) #Nearest neighbour mask
@@ -133,7 +135,7 @@ if __name__ == "__main__":
 
     sizes = [4, 8, 16, 32]
     for lattice_size in sizes:
-
+        print(f"Running simulation for lattice size: {lattice_size}x{lattice_size}")
         T_values = torch.linspace(0.01, 5.0, 25).to(device)
         energies, magnetizations, energies_per_replica = replica_exchange_monte_carlo(
             lattice_size, T_values, equilibration_steps, production_steps, J=1.0
