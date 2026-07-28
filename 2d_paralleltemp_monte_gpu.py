@@ -115,7 +115,7 @@ def replica_exchange_monte_carlo(lattice_size, T_values, equilibration_steps, pr
             magnetizations[sample_idx] = compute_magnetizations(replicas)
             sample_idx += 1
 
-    return energies.mean(dim=0), magnetizations.mean(dim=0), energies_per_replica  
+    return energies, magnetizations 
 
 def analytical_energy(T, J=1.0):
     beta = 1 / T
@@ -137,7 +137,7 @@ if __name__ == "__main__":
     for lattice_size in sizes:
         print(f"Running simulation for lattice size: {lattice_size}x{lattice_size}")
         T_values = torch.linspace(0.01, 5.0, 25).to(device)
-        energies, magnetizations, energies_per_replica = replica_exchange_monte_carlo(
+        energies, magnetizations= replica_exchange_monte_carlo(
             lattice_size, T_values, equilibration_steps, production_steps, J=1.0
         )
 
