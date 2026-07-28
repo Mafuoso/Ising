@@ -3,26 +3,28 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from scipy.special import ellipk
+import pandas as pd
 
-lattice_size = 4
-equilibration_steps = 2000
-production_steps = 10000
+
+equilibration_steps = 10000
+production_steps = 50000
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 torch.random.manual_seed(995)
 
-KERNEL = torch.tensor([[0,1,0],[1,0,1],[0,1,0]], dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(device)
+KERNEL = torch.tensor([[0,1,0],[1,0,1],[0,1,0]], dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(device) #Nearest neighbour mask
 
 
 def create_lattice(lattice_size):
-    return (torch.randint(0, 2, (lattice_size, lattice_size), device=device) * 2 - 1).to(torch.int8)
+    return (torch.randint(0, 2, (lattice_size, lattice_size), device=device) * 2 - 1).to(torch.int8) #create integer matrix of -1 and 1
 
 
 def create_replicas(lattice_size, num_replicas):
-    return torch.stack([create_lattice(lattice_size) for _ in range(num_replicas)])
+    return torch.stack([create_lattice(lattice_size) for _ in range(num_replicas)]) #duplicate the lattice along another axis which corresponds to each replica
 
 
+#compute energies for each replica using convolution and kernel to sum over nearest neighbours
 def compute_energies(replicas, J=1.0):
     grid = replicas.float().unsqueeze(1)
     grid_padded = F.pad(grid, (1,1,1,1), mode='circular')
@@ -32,27 +34,29 @@ def compute_energies(replicas, J=1.0):
 
 
 def compute_magnetizations(replicas):
-    return torch.abs(replicas.float().mean(dim=(1,2)))
+    return torch.abs(replicas.float().mean(dim=(1,2))) #magnetization per spin in each replica
 
 
 def metropolis(replicas, T_values, J=1.0):
     L = replicas.shape[1]
     grid = replicas.float().unsqueeze(1)
-    grid_padded = F.pad(grid, (1,1,1,1), mode='circular')
+    grid_padded = F.pad(grid, (1,1,1,1), mode='circular')#Periodic boundary conditions
     neighbour_sum = F.conv2d(grid_padded, KERNEL, padding=0).squeeze(1)
 
     T = T_values.view(-1, 1, 1)
     delta_E = 2 * J * replicas.float() * neighbour_sum
     boltzmann = torch.exp(-delta_E / T)
-    accept = torch.rand_like(boltzmann)
+    accept = torch.rand_like(boltzmann) 
     should_flip = (delta_E <= 0) | (accept <= boltzmann)
 
     i, j = torch.meshgrid(torch.arange(L, device=device), torch.arange(L, device=device), indexing='ij')
-    even_mask = ((i + j) % 2 == 0).unsqueeze(0).expand_as(replicas)
+    even_mask = ((i + j) % 2 == 0).unsqueeze(0).expand_as(replicas) #checkboard update pattern
     odd_mask  = ((i + j) % 2 == 1).unsqueeze(0).expand_as(replicas)
 
-    replicas[even_mask & should_flip] *= -1
+    replicas[even_mask & should_flip] *= -1 #even update first 
 
+
+    #recompute boltzmann factors for odd sites after even sites have been updated
     grid = replicas.float().unsqueeze(1)
     grid_padded = F.pad(grid, (1,1,1,1), mode='circular')
     neighbour_sum = F.conv2d(grid_padded, KERNEL, padding=0).squeeze(1)
@@ -73,7 +77,7 @@ def tempering(replicas, T_values, J=1.0):
         i = torch.arange(parity, num_replicas - 1, 2, device=device)
         j = i + 1
 
-        delta = (1/T_values[i] - 1/T_values[j]) * (energies[i] - energies[j])
+        delta = (1/T_values[i] - 1/T_values[j]) * (energies[i] - energies[j]) #Tempering acceptance probability
         p_swap = torch.exp(delta).clamp(max=1.0)
         accept = torch.rand(len(i), device=device) < p_swap
 
@@ -81,7 +85,7 @@ def tempering(replicas, T_values, J=1.0):
             if accept[k]:
                 ii, jj = i[k].item(), j[k].item()
                 # swap configurations, temperatures stay fixed
-                replicas[[ii, jj]] = replicas[[jj, ii]].clone() #Use a ttemporary vairable to swap indices
+                replicas[[ii, jj]] = replicas[[jj, ii]].clone() #Use a temporary vairable to swap indices
                 energies[[ii, jj]] = energies[[jj, ii]].clone()
 
     return replicas
@@ -126,46 +130,22 @@ def analytical_magnetization(T, J=1.0):
         return 0.0
 
 if __name__ == "__main__":
-    print("Warming up...")
-    T_warm = torch.linspace(0.01, 5.0, 4).to(device)
-    replica_exchange_monte_carlo(10, T_warm, 50, 50, J=1.0)
-    print("Warmup complete. Running full simulation...")
 
-    T_values = torch.linspace(0.01, 5.0, 25).to(device)
-    energies,magnetizations, energies_per_replica = replica_exchange_monte_carlo(
-        lattice_size, T_values, equilibration_steps, production_steps, J=1.0
-    )
+    sizes = [4, 8, 16, 32]
+    for lattice_size in sizes:
 
-    analytical_energies = [analytical_energy(T.item()) for T in T_values]
-    analytical_magnetizations = [analytical_magnetization(T.item()) for T in T_values]
-    T_cpu = T_values.cpu()
-    energies_cpu = energies.cpu()
-    magnetizations_cpu = magnetizations.cpu()
-    energies_per_replica_cpu = energies_per_replica.cpu()
-    residuals = energies_cpu - torch.tensor(analytical_energies).cpu()
+        T_values = torch.linspace(0.01, 5.0, 25).to(device)
+        energies, magnetizations, energies_per_replica = replica_exchange_monte_carlo(
+            lattice_size, T_values, equilibration_steps, production_steps, J=1.0
+        )
 
-    fig,axes = plt.subplots(1,4, figsize=(16,8))
-    axes[0].plot(T_cpu, energies_cpu, marker="o", linestyle="none", markersize=4, fillstyle="none", label="Monte Carlo")
-    axes[0].plot(T_cpu, analytical_energies, marker="x", linestyle="none", markersize=4, fillstyle="none", label="Analytical")
-    axes[0].set_xlabel('Temperature')
-    axes[0].set_ylabel('Energy per Spin')
-    axes[0].set_title('Energy')
-    axes[0].legend()
-    axes[1].plot(T_cpu, magnetizations_cpu, marker="o", linestyle="none", markersize=4, fillstyle="none", label="Monte Carlo")
-    axes[1].plot(T_cpu, analytical_magnetizations, marker="x", linestyle="none", markersize=4, fillstyle="none", label="Analytical")
-    axes[1].set_xlabel('Temperature')
-    axes[1].set_ylabel('Magnetization per Spin')
-    axes[1].set_title('Magnetization')
-    axes[1].legend()
-    axes[2].plot(T_cpu, residuals, marker="o", linestyle="none", markersize=4, fillstyle="none")
-    axes[2].set_xlabel('Temperature')
-    axes[2].set_ylabel('Energy Residual')
-    axes[2].set_title('Residuals')
-    axes[3].plot(T_cpu, energies_per_replica_cpu, marker="o", linestyle="none", markersize=4, fillstyle="none") 
-    axes[3].set_xlabel('Temperature')
-    axes[3].set_ylabel('Average Energy per Replica')
-    axes[3].set_title('Energy Replica')
-    plt.tight_layout()
-    plt.savefig("2d_ising_results.png", dpi=300)
-    plt.show()
+        #Write magnetizations and energies to a file
+        results_df = pd.DataFrame({
+            'Temperature': T_values.cpu().numpy(),
+            'Energy': energies.cpu().numpy(),
+            'Magnetization': magnetizations.cpu().numpy(),
+        })
+        results_df.to_csv(f'ising_results_{lattice_size}.csv', index=False)
+
+
     
