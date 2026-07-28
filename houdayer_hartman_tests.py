@@ -2,16 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 
-#Import all the data
-L_4 = pd.read_csv('ising_results_4.csv')
-L_8 = pd.read_csv('ising_results_8.csv')
-L_16 = pd.read_csv('ising_results_16.csv')
-L_32 = pd.read_csv('ising_results_32.csv')
 
-
-ERR_FLOOR = 1e-2        # floor so near-zero error bars can't dominate S
-N_BLOCKS  = 10          # delete-block jackknife bins (contiguous -> captures autocorrelation)
-
+BAND = (0.15, 0.655)     # fixed for all Binder collapses
+TCR = (2.24, 2.31)
+NUR = (0.7, 1.4)
+ERR_FLOOR = 1e-4
+N_BLOCKS = 20
 
 def block_jackknife_mean(x, n_blocks=N_BLOCKS):
     """ 
@@ -90,22 +86,91 @@ def jackknife_nu(curves, tcr, band, nur=(0.4, 1.5)):
       tcs, nus = np.array(tcs), np.array(nus); fac = (n-1)/n
       return (np.sqrt(fac*np.sum((tcs-tcs.mean())**2)), np.sqrt(fac*np.sum((nus-nus.mean())**2)))
 
+def jackknife_binder(M, n_blocks=N_BLOCKS):
+    """U4 and its error at one temperature. Blocks are contiguous."""
+    M = np.asarray(M, float).ravel()
+    n = M.size
+    B = min(n_blocks, n)
+    if B < 2:
+        return float("nan"), float("nan")
+    m = n // B
+    a = (M[:B * m] ** 2).reshape(B, m).sum(axis=1)
+    b = (M[:B * m] ** 4).reshape(B, m).sum(axis=1)
+    d = B * m - m
+    m2 = (a.sum() - a) / d          # leave-one-block-out <M^2>
+    m4 = (b.sum() - b) / d          # leave-one-block-out <M^4>
+    loo = 1.0 - m4 / (3.0 * m2 ** 2)
+    var = (B - 1) / B * np.sum((loo - loo.mean()) ** 2)
+    return float(loo.mean()), float(np.sqrt(var))
 
-#Test collapse for nu on the 2D Ising model. The exact value is nu=1.0.
 
-#first we have to get error bars for the magnetization data. 
-def get_err_M(df):
-    """Get error bars for the magnetization data using block jackknife."""
-    err_M = []
-    for T in df['T'].unique():
-        M_samples = df[df['T'] == T]['M_samples'].values[0]  # Assuming M_samples is a list of samples
-        mean, err = block_jackknife_mean(M_samples)
-        err_M.append(err)
-    return np.array(err_M)
+def binder_curve(L):
+    d = np.load(f"ising_samples_L{L}.npz")
+    T = d["T"]
+    M = d["M"].astype(np.float64)
+    U = np.empty(T.size)
+    e = np.empty(T.size)
+    for j in range(T.size):
+        U[j], e[j] = jackknife_binder(M[:, j])
+    return (int(d["L"]), T, U, e)
 
-def test_nu():
-     curves = [(L_4['L'][0], L_4['T'].values, L_4['M'].values, L_4['err_M'].values),
-               (L_8['L'][0], L_8['T'].values, L_8['M'].values, L_8['err_M'].values),
-               (L_16['L'][0], L_16['T'].values, L_16['M'].values, L_16['err_M'].values),
-               (L_32['L'][0], L_32['T'].values, L_32['M'].values, L_32['err_M'].values)] # (Temperature, Magnetization, Error) tuples for each system size
-     band = (
+
+TC_EXACT = 2.269185314
+NU_EXACT = 1.0
+
+def load_M(L):
+    d = np.load(f"ising_samples_L{L}.npz")
+    M = d["M"].astype(float)
+    if M.ndim == 3:                          # newer files: (n_samp, n_seed, n_T)
+        M = M.reshape(-1, M.shape[-1])       # merge seeds into the time axis
+    return d["T"], M                         # M is now (n_samples, n_T)
+
+
+def rows_from_blocks(n, blocks, n_blocks=N_BLOCKS):
+    m = n // n_blocks
+    return np.concatenate([np.arange(b * m, (b + 1) * m) for b in blocks])
+
+
+def get_tc(L_list, blocks):
+    curves = []
+    for L in L_list:
+        T, M = load_M(L)
+        X = M[rows_from_blocks(M.shape[0], blocks)]
+        U = np.empty(T.size); e = np.empty(T.size)
+        for j in range(T.size):
+            U[j], e[j] = jackknife_binder(X[:, j])
+        curves.append((L, T, U, e))
+    tc, nu, S = fit_collapse(curves, tcr=(2.24, 2.31), band=(0.20, 0.60),
+                             nur=(0.7, 1.4), err_floor=1e-4)
+    return tc, nu
+
+
+L_list = [16, 32, 48, 64]
+NU_EXACT = 1.0
+
+tc_best, nu_best = get_tc(L_list, np.arange(N_BLOCKS))
+
+rng = np.random.default_rng(0)
+boot = np.array([get_tc(L_list, rng.integers(0, N_BLOCKS, N_BLOCKS))
+                 for _ in range(200)])
+s_tc, s_nu = boot.std(axis=0, ddof=1)
+
+for name, fit, exact, s in (("Tc", tc_best, TC_EXACT, s_tc),
+                            ("nu", nu_best, NU_EXACT, s_nu)):
+    off = fit - exact
+    print(f"{name}: fit = {fit:.6f} +- {s:.6f}   exact = {exact:.6f}   "
+          f"off = {off:+.2e} = {off/s:+.2f} sigma")
+
+#Plotting
+plt.figure(figsize=(8, 6))
+plt.xlabel('Temperature')
+plt.ylabel('Binder Cumulant U4')
+for L in [16, 32, 48, 64]:
+    plt.errorbar(binder_curve(L)[1], binder_curve(L)[2], yerr=binder_curve(L)[3], label=f'L={L}', fmt='o-')
+plt.axvline(x=tc_best, color='r', linestyle='--', label=f'Estimated Tc={tc_best:.4f}')
+plt.title('Binder Cumulant vs Temperature for 2D Ising Model')
+plt.legend()
+plt.grid()
+plt.savefig('binder_cumulant_vs_temperature.png')
+
+

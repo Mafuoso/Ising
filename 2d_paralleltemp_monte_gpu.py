@@ -4,10 +4,11 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from scipy.special import ellipk
 import pandas as pd
+import numpy as np
 
 
 equilibration_steps = 10000
-production_steps = 50000
+production_steps = 100000
 
 
 # device = torch.device("mps" if torch.mps.is_available() else "cpu")
@@ -36,7 +37,7 @@ def compute_energies(replicas, J=1.0):
 
 
 def compute_magnetizations(replicas):
-    return torch.abs(replicas.float().mean(dim=(1,2))) #magnetization per spin in each replica
+    return torch.abs(replicas.double().mean(dim=(1,2))) #Return magnetization per spin for each temperature replica. 
 
 
 def metropolis(replicas, T_values, J=1.0):
@@ -111,7 +112,6 @@ def replica_exchange_monte_carlo(lattice_size, T_values, equilibration_steps, pr
         replicas = tempering(replicas, T_values, J=J)
         if step % 2 == 0 and sample_idx < num_samples:
             energies[sample_idx] = compute_energies(replicas, J=J)/replicas[0].numel() #energy per spin
-            energies_per_replica = compute_energies(replicas, J=J)/len(T_values) #average energy per replica
             magnetizations[sample_idx] = compute_magnetizations(replicas)
             sample_idx += 1
 
@@ -133,21 +133,22 @@ def analytical_magnetization(T, J=1.0):
 
 if __name__ == "__main__":
 
-    sizes = [4, 8, 16, 32]
+    sizes = [32,48,64]
     for lattice_size in sizes:
         print(f"Running simulation for lattice size: {lattice_size}x{lattice_size}")
-        T_values = torch.linspace(0.01, 5.0, 25).to(device)
+        T_values = torch.cat([
+            torch.linspace(1.60, 2.05, 6),
+            torch.linspace(2.10, 2.45, 22),   # dense band around Tc = 2.269185
+            torch.linspace(2.55, 3.40, 6),
+        ]).to(device)
         energies, magnetizations= replica_exchange_monte_carlo(
             lattice_size, T_values, equilibration_steps, production_steps, J=1.0
         )
 
-        #Write magnetizations and energies to a file
-        results_df = pd.DataFrame({
-            'Temperature': T_values.cpu().numpy(),
-            'Energy': energies.cpu().numpy(),
-            'Magnetization': magnetizations.cpu().numpy(),
-        })
-        results_df.to_csv(f'ising_results_{lattice_size}.csv', index=False)
-
-
-    
+        np.savez_compressed(
+            f"ising_samples_L{lattice_size}.npz",
+            L=lattice_size,
+            T=T_values.cpu().numpy(),          # shape (n_T,)
+            E=energies.cpu().numpy(),          # shape (n_samples, n_T)
+            M=magnetizations.cpu().numpy(),    # shape (n_samples, n_T)
+                 )
