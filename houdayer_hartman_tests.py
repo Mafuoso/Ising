@@ -117,6 +117,7 @@ def binder_curve(L):
 
 TC_EXACT = 2.269185314
 NU_EXACT = 1.0
+NU_RANGE = (0.7, 1.4)
 
 def load_M(L):
     d = np.load(f"ising_samples_L{L}.npz")
@@ -140,13 +141,21 @@ def get_tc(L_list, blocks):
         for j in range(T.size):
             U[j], e[j] = jackknife_binder(X[:, j])
         curves.append((L, T, U, e))
-    tc, nu, S = fit_collapse(curves, tcr=(2.24, 2.31), band=(0.20, 0.60),
-                             nur=(0.7, 1.4), err_floor=1e-4)
+    tc, nu, S = fit_collapse(curves, tcr=TCR, band=BAND,
+                             nur=NU_RANGE, err_floor=1e-4)
     return tc, nu
+
+def fit_nu_fixedTc(curves, Tc, band, nur=NU_RANGE, n_scan=241, n_zoom=4):
+    lo, hi = nur
+    for _ in range(n_zoom + 1):
+        nus = np.linspace(lo, hi, n_scan)
+        S = np.array([collapse_S((Tc, nu), curves, band) for nu in nus])  # Tc frozen
+        k = int(np.argmin(S)); d = nus[1] - nus[0] 
+        lo, hi = max(nus[k] - 2*d, 1e-3), nus[k] + 2*d
+    return float(nus[k]), float(S[k])
 
 
 L_list = [16, 32, 48, 64]
-NU_EXACT = 1.0
 
 tc_best, nu_best = get_tc(L_list, np.arange(N_BLOCKS))
 
@@ -161,16 +170,61 @@ for name, fit, exact, s in (("Tc", tc_best, TC_EXACT, s_tc),
     print(f"{name}: fit = {fit:.6f} +- {s:.6f}   exact = {exact:.6f}   "
           f"off = {off:+.2e} = {off/s:+.2f} sigma")
 
-#Plotting
-plt.figure(figsize=(8, 6))
-plt.xlabel('Temperature')
-plt.ylabel('Binder Cumulant U4')
-for L in [16, 32, 48, 64]:
-    plt.errorbar(binder_curve(L)[1], binder_curve(L)[2], yerr=binder_curve(L)[3], label=f'L={L}', fmt='o-')
-plt.axvline(x=tc_best, color='r', linestyle='--', label=f'Estimated Tc={tc_best:.4f}')
-plt.title('Binder Cumulant vs Temperature for 2D Ising Model')
-plt.legend()
-plt.grid()
-plt.savefig('binder_cumulant_vs_temperature.png')
+    
+#get many nu values for a range of T_c values and then we can calculate the spread
+candidate_tc = np.linspace(TC_EXACT - 0.005, TC_EXACT + 0.005, 21)
+nus = []
+metrics = []
+curves = [binder_curve(L) for L in L_list]
+for T_c in candidate_tc:
+    nu, S = fit_nu_fixedTc(curves, T_c, band=BAND, nur=NU_RANGE)
+    nus.append(nu)
+    metrics.append(S)
+
+#Analyze the data
+spread = np.std(nus)
+print(f"Spread of nu values for T_c in [{candidate_tc[0]:.6f}, {candidate_tc[-1]:.6f}]: {spread:.6f}")
+dnudt = np.gradient(nus, candidate_tc)
+print(f"Estimated d(nu)/d(T_c): {dnudt.mean():.6f}")
+
+
+S = np.asarray(metrics)
+nus = np.asarray(nus)
+ok = S <= S.min() * 2          # competitive region
+
+fig, ax = plt.subplots(2, 1, figsize=(6.5, 6), sharex=True,
+                       gridspec_kw={'hspace': 0.12})
+
+for a in ax:
+    a.axvspan(candidate_tc[ok].min(), candidate_tc[ok].max(),
+              color='0.90', zorder=0)
+    a.axvline(TC_EXACT, color='crimson', ls='--', lw=1.2, zorder=1)
+    a.grid(alpha=0.25, lw=0.5)
+
+ax[0].axhline(NU_EXACT, color='crimson', ls=':', lw=1.2)
+ax[0].plot(candidate_tc, nus, '-', color='0.75', lw=1, zorder=2)
+ax[0].plot(candidate_tc[~ok], nus[~ok], 'o', mfc='white',
+           mec='0.6', ms=5, zorder=3)
+ax[0].plot(candidate_tc[ok], nus[ok], 'o', color='tab:blue', ms=6, zorder=4)
+ax[0].set_ylabel(r"$\nu$")
+
+ax[1].plot(candidate_tc, S, '-', color='0.75', lw=1, zorder=2)
+ax[1].plot(candidate_tc[~ok], S[~ok], 'o', mfc='white',
+           mec='0.6', ms=5, zorder=3)
+ax[1].plot(candidate_tc[ok], S[ok], 'o', color='tab:green', ms=6, zorder=4)
+ax[1].set_yscale('log')
+ax[1].set_ylabel(r"$S$")
+ax[1].set_xlabel(r"$T_c$")
+
+ax[0].plot([], [], '--', color='crimson', label=r"exact $T_c$, $\nu$")
+ax[0].plot([], [], 'o', mfc='white', mec='0.6', label=r"$S > 2S_{\min}$")
+ax[0].legend(frameon=False, fontsize=9, loc='lower left')
+
+plt.savefig("nu_vs_Tc.png", dpi=500, bbox_inches='tight')
+
+
+
+
+
 
 
